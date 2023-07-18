@@ -1,0 +1,173 @@
+---
+title: "Desafio"
+subtitle: Emanuela Mendes Cardoso
+output: pdf_document
+date: "2022-12-21"
+editor_options: 
+  chunk_output_type: console
+---
+
+# Diretório
+
+```{r include = FALSE}
+knitr::opts_knit$set(root.dir = "C:/Introdução R/RGV410046/faostat")
+```
+
+```{r eval=FALSE}
+# meu computador (mudar de acordo)
+setwd("C:/Introdução R/RGV410046/faostat")
+```
+
+# Carregar pacotes
+
+```{r warning=FALSE, message=FALSE}
+library(rio)
+library(tidyverse)
+library(metan)
+library(DataExplorer)
+```
+
+# Importação dos dados
+
+```{r}
+df_1 <- 
+  import("area.xlsx")
+df_2 <- 
+  import("producao.xlsx")
+
+```
+
+# Ajustes de tabela
+
+```{r}
+#Tabela produção
+
+#Separando a informação de ano e produção em duas colunas individuais
+df_3_prod <- df_2 |> 
+  separate(ANO_PRODUCAO
+, into = c("ANO", "PRODUCAO"), sep = "_")
+
+#Ajustar todas as palavras em maiúsculas, espaços, tabulação e caracteres de pontuação 
+df_4_prod <- tidy_strings(df_3_prod)
+
+#Passando campo de caracter para numérico 
+df_4_prod$PRODUCAO <- as.numeric(as.character(df_4_prod$PRODUCAO))
+
+
+#Tabela área
+
+#Girar tabela de área
+long <- 
+  pivot_longer(df_1,
+               cols = 2:61,
+               names_to = "ANO",
+               values_to = "AREA")
+long
+
+#Ajustar todas as palavras em maiúsculas, espaços, tabulação e caracteres de pontuação 
+df_4_area <- tidy_strings(long)
+
+#Ajuste nome PAIS
+df_4_area <- df_4_area
+names(df_4_area)[c(1)] <- c("PAIS")
+names(df_4_area)
+
+
+#Junção tabela de área e produção
+
+df_5_uniao <-
+  left_join (df_4_area,df_4_prod, by = c("PAIS","ANO"))
+
+#Mostrar somente a primeira linha da tabela
+head(df_5_uniao,n=1)
+```
+
+# Calculo da produtividade
+
+```{r}
+#Calculo da produtividadde
+df_4_prod <-  df_5_uniao %>%  mutate(prod = PRODUCAO/AREA)
+
+#Ajustar tabela transformar valores 0 para NA
+df_4_prod[df_4_prod == 0] <- NA
+df_4_prod <- df_4_prod |> remove_rows_na()
+
+#Retornar somente a primeira linha da tabela
+head(df_4_prod,n=1)
+```
+
+# Atividade(1) 
+Calcular a produtividade média, máximo, mínimo e erro padrão da média (Mg ha-1) de cada país considerando todos os anos, ordenando os países pelo valor decrescente da produtividade média.
+
+```{r}
+#função erro padrão da média
+erro <- function(prod_media){
+  sd(prod_media,na.rm=TRUE)/sqrt(length(na.omit(prod_media)))
+}
+prod_media <- df_4_prod |>
+  group_by(PAIS) |>
+  summarise(across(prod,.fns=list(min=min,media=mean,max=max,erro=erro, n=length))) |>
+arrange(desc(prod_media))
+head(prod_media,n=1)
+
+```
+
+# Atividade (2) 
+Calcular a diferença (Mg ha-1) da produtividade média dos três países com maior produtividade em relação à produtividade média dos países restantes (excluindo os três primeiros colocados)
+
+```{r}
+#top3
+top3 <- 
+  prod_media |> 
+  slice(1:3) |> 
+  pull(PAIS)
+top3
+
+media_top3 <- df_4_prod %>% 
+  mutate(top3 = ifelse(PAIS %in% top3,"yes","no")) |>
+  group_by(top3) |>
+  summarise(mean=mean(prod, na.rm=TRUE)) |>
+   pivot_wider(names_from = top3,
+              values_from = mean) |> 
+  mutate(dif = yes - no)
+media_top3
+#exportar os dados
+export(list(
+  diferenca = media_top3,
+  prod_media = prod_media
+),
+"atividades_1_2.xlsx") 
+
+
+```
+
+# Atividade (3)
+
+Criar um gráfico de tendência mostrando a produtividade anual dos três países com maior produtividade.
+
+```{r}
+#Seleção gráfico
+df_grafico <- df_4_prod |>
+filter(PAIS %in% top3) |> 
+  mutate(ANO = as.numeric(ANO))
+
+#Produção gráfico a partir da seleção 
+
+ggplot(df_grafico, aes(ANO, prod, color = PAIS, group = PAIS)) +
+  geom_point() + 
+  geom_line() + 
+  scale_x_continuous(breaks = seq(1960,2020, by=5),
+                     (date_labels = "Ano de cultivo")) +
+  scale_y_continuous(breaks = seq(10,40, by=5))+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) + 
+  labs(title = "Produtividade de mandioca de 1960 a 2020 dos TOP 3 países com maior produtividade",
+       subtitle = "Fonte:https://www.fao.org/faostat/en/#data/QCL",
+       caption = "Elaboração: Emanuela Mendes Cardoso",
+       x = "Ano de cultivo",
+       y = "Produtividade (Mg ha-1)",
+       color = NULL) 
+```
+
+# Discussão
+Os dados são derivados da Food and Agriculture Organization, e mostram a produção e área plantada de mandioca, em 102 países, de 1961 a 2020. A partir disso foi possível identificarmos a produtividade mínima, máxima e média de cada país. Pelo cálculo da produtividade média  observamos que os três países com maior produtividade, são: Barbados, Cook Islands e India. Sendo que a produtividade média, desses três é de 21.35668(Mg ha-1), enquanto dos outros 99 países restantes é de 9.19996(Mg ha-1), gerando uma diferença entre eles de 12.15672(Mg ha-1). Em relação ao gráfico das três principais, podemos visualizar oscilações de produtividade ao longo dos anos. Barbados em 1961 estava em destaque, mas passou por momentos de queda, recuperação e atualmente mantem-se mais estável. Já Cook Islands, estava em 1961 em posição mediana, teve períodos de alta, mas em geral segue em queda. A India, começou bem abaixo, mas teve grande crescendo, tendo uma queda em 2015. mas segue em recuperação.
